@@ -1,0 +1,419 @@
+PROJECT (
+PREAMBLE (
+	NAME "DLX_V2"
+	AUTHOR "Roland Ibbett"
+	VERSION 2.9
+	DESCRIPTION "DLX with Parallel Function Units (and labels)"
+)
+
+-- This project draws partly on previous DLX projects undertaken by
+-- Paul Coe, Iain Paterson and Mathew Perry with subsequent modifications
+-- by Fredric Mallet
+-- Updated November 2014 by Roland Ibbett
+-- Layout altered February 2019  by Roland Ibbett
+
+PARAMLIB (
+-- definition of error description word array
+	ARRAY (string_array, String);
+
+-- DEFINITION OF INSTRUCTION STRUCTURES
+
+-- load instruction group (I-type)
+-- this is a variant of the DLX I-type designed to allow the decoder to deal
+-- with brackets in the assembly code instructions
+	STRUCT (t_load, [RSTRING (dest_reg, "-"), RSTRING (src, "-")]);
+
+-- load immediate (I-type)
+-- this is a variant of the DLX I-type designed to allow the decoder to deal
+-- with the absence of an rs1 specifier in the assembly code instructions
+	STRUCT (t_loadi, [RSTRING (dest_reg, "-"), RINT (immediate, 0)]);
+
+-- store instruction group (I-type)
+-- this is a variant of the DLX I-type designed to allow the decoder to deal
+-- with brackets in the assembly code instructions
+	STRUCT (t_store, [RSTRING (dest, "-"), RSTRING (src_reg, "-")]);
+
+-- move instruction group (R-type, but with no rs2 field)
+	STRUCT (t_move, [RSTRING (dest_reg, "-"), RSTRING (src_reg, "-")]);
+
+-- ALU (integer and floating-point) instruction group (R-type)
+	STRUCT (t_alu,  [RSTRING (dest_reg, "-"),
+			 RSTRING (src_reg1, "-"),
+			 RSTRING (src_reg2, "-")]);
+
+-- ALUI instruction group (I-type)
+	STRUCT (t_alui,  [RSTRING (dest_reg, "-"),
+			 RSTRING (src_reg1, "-"),
+			 RINT (immediate, 0)]);
+
+-- conditional branch (BRNC) instruction group (I-type)
+	STRUCT (t_brnc, [RSTRING (src_reg, "-"),
+			 RSTRING (label, "-")]);
+
+--  floating-point compare instruction group (I-type)
+
+	STRUCT (t_fpcp, [RSTRING (src_reg1, "-"),
+			 RSTRING (src_reg2, "-")]);
+
+-- Definition of instruction set
+	INSTR (t_dlx_instrn_set, [(VOID),
+				  (LOAD(LB,LBU,LH,LHU,LW,LF), RSTRUCT (t_load,  load_field)),
+				  (STORE(SB,SH,SW,SF), RSTRUCT (t_store, store_field)),
+				  (MOVE(MOVE,MOVD,MOVF,MOVFP2I,MOVI2FP), RSTRUCT (t_move,  move_field)),
+				  (ALU(ADD,ADDU,SUB,SUBU,MULT,DIV,AND,OR,XOR,SLL,SRL,SRA,SEQ,SNE,
+					SLT,SGT,SLE,SGE), RSTRUCT (t_alu, alu_field)),
+				  (ALUI(ADDI,ADDUI,SUBI,SUBUI,ANDI,ORI,XORI,SLLI,SRLI,SRAI,SEQI,SNEI,
+					SLTI,SGTI,SLEI,SGEI), RSTRUCT (t_alui,  alui_field)),
+				  (LHI, RSTRUCT(t_loadi, loadi_field)),
+				  (BRNC(BEQZ,BNEZ), RSTRUCT (t_brnc,  brnc_field)),
+				  (BFP(BFPT,BFPF), RSTRING (label, "-")),
+				  (JIMM(J,JAL,TRAP), RSTRING (label,  "-")),
+				  (NOP),
+				  (JREG(JR,JALR),   RSTRING (src_reg,  "-")),
+				  (FLPT(ADDF,SUBF,MULTF,DIVF),   RSTRUCT (t_alu,   alu_field)),
+				  (COMP(EQF,NEF,LTF,GTF,LEF,GEF),   RSTRUCT (t_fpcp,  fpcp_field))
+				 ], function);
+
+-- definition of instruction register/packet
+	STRUCT (t_instrn_reg, [RINT(status, 0),
+				RINSTR(t_dlx_instrn_set, instrn)]);
+
+-- definition of instruction memory array
+	ARRAYI (instr_mem_array, t_dlx_instrn_set);
+
+-- definition of data memory word
+--	STRUCT (data_mem_word, [RUINT(data, 0)]);
+	STRUCT (data_mem_word, [RINT(data, 0)]);
+
+-- definition of data memory array
+	ARRAY (data_mem_array, data_mem_word);
+
+-- definition of data memory access packet
+	STRUCT (t_d_mem_access, [RINT(status, 0),
+				 RINT(data, 0),
+--				 RUINT(data, 0),
+				 RINT(address, 0)]);
+
+	STRUCT (pc_struct, [RSTRING(label,"main"), RINT(offset, 0)]);
+
+-- definition of instruction memory access packet
+	STRUCT (t_i_mem_access, [RINT(status, 0), RSTRUCT(pc_struct, addr)]);
+
+-- definition of programmable register
+	STRUCT (t_prog_reg, [RINT(reg_busy, 0),
+--				  RUINT(reg_value, 0)]);
+				  RINT(reg_value, 0)]);
+
+-- definition of programmable register set
+	ARRAY (prog_reg_set, t_prog_reg);
+
+-- definition of programmable register access packets
+	STRUCT (t_reg_read, [RSTRING(reg_type, "-"),
+				  RINT(reg_no, 0)]);
+	STRUCT (t_reg_write, [RSTRING(reg_type, "-"),
+				   RINT(reg_no, 0),
+				   RINT(data, 0)]);
+--				   RUINT(data, 0)]);
+	STRUCT (t_reg_value, [RINT(value, 0)]);
+--	STRUCT (t_reg_value, [RUINT(value, 0)]);
+	STRUCT (set_dest_busy_struct, [RSTRING(destT, "-"),
+					RINT(dest, 0)]);
+
+-- definition of pipeline packets
+
+	STRUCT (unit_data_struct, [RINT(status, 0),
+				   RINSTR(t_dlx_instrn_set, instrn),
+				   RINT(data1, 0),
+--				   RUINT(data1, 0),
+				   RINT(data2, 0)]);
+--				   RUINT(data2, 0)]);
+
+-- for ALU instructions data1 contains the first source register operand value
+--                      data2 contains the second source register operand value
+-- for LOADs  data1 contains the base address (= source register content)
+-- for STOREs data1 contains the base address (= destination register content)
+--            data2 contains the source register operand value
+
+	STRUCT (t_write_back_struct, [RINT(status, 0),
+				      RINSTR(t_dlx_instrn_set, instrn),
+--				      RUINT(data, 0)]);
+				      RINT(data, 0)]);
+
+	STRUCT (t_exe_rslt,    [RINT(status, 0),
+--				RUINT(data, 0)]);
+				RINT(data, 0)]);
+
+	STRUCT (t_branch_rslt,    [RINT(status, 0), 
+				   RINT(branch, 0), 
+				   RSTRUCT(pc_struct, addr)]);
+
+-- definition of pipeline display registers
+	STRUCT (t_pipe_disp_reg, [RINT(status, 0),
+			          RINSTR(t_dlx_instrn_set, instrn),
+				  RINT(latency, 0)]);
+
+-- definition of links connecting to memory
+
+	LINK(l_mem,[  (MEM_ACCESS_I,RSTRUCT(t_i_mem_access,DP)),
+		      (MEM_ACCESS_D,RSTRUCT(t_d_mem_access,DP)),
+		      (MEM_INSTR,RSTRUCT(t_instrn_reg,DP)),
+		      (MEM_DATA,RSTRUCT(t_exe_rslt,DP))]);
+
+-- definition of links connecting to registers
+
+	LINK(l_reg,[  (REG_READ,RSTRUCT(t_reg_read,DP)),
+		      (REG_WRITE,RSTRUCT(t_reg_write,DP)),
+		      (REG_VALUE,RSTRUCT(t_reg_value,DP)),
+		      (SET_DEST_BUSY,RSTRUCT(set_dest_busy_struct,DP))]);
+
+-- definition of links connecting pipeline stages
+
+	LINK(l_pipe,[ (INSTRUCTION,RSTRUCT(t_instrn_reg,DP)),
+		      (UNIT_DATA,RSTRUCT(unit_data_struct,DP)),
+		      (WRITE_BACK,RSTRUCT(t_write_back_struct,DP)),
+		      (BRANCH_RESULT,RSTRUCT(t_branch_rslt,DP))]);
+
+)
+	GLOBALS(
+			RINT (Max_Time_Left, 5000);
+	)
+	ENTITYLIB (
+
+		ABSTRACT Biclocked sync ( )
+		ENTITY Clock sync ( )
+		ENTITY Clockphase sync ( )
+
+	ENTITY scoreboard (
+		DESCRIPTION ("Scoreboard")
+		PARAMS (
+			 RSTRING (WAW, "---");
+			 RSTRING (RAW1, "---");
+			 RSTRING (RAW2, "---");
+			 RSTRING (SHz, "---");
+			 RSTRING (CHz, "---");
+			)
+			PORTS ( )
+	);
+
+	ENTITY pipe_disp (
+		DESCRIPTION("Pipeline Display Panel")
+		PARAMS (
+			RINSTR (t_dlx_instrn_set, W_B);
+			RINSTR (t_dlx_instrn_set, M_A);
+			RINSTR (t_dlx_instrn_set, EX4);
+			RINSTR (t_dlx_instrn_set, EX3);
+			RINSTR (t_dlx_instrn_set, EX2);
+			RINSTR (t_dlx_instrn_set, EX1);
+			RINSTR (t_dlx_instrn_set, I_D);
+			RINSTR (t_dlx_instrn_set, I_F);
+		)
+		PORTS ( )
+	);
+	ENTITY registers (
+		DESCRIPTION ("DLX Registers")
+		STATES (RF_IDLE, RF_WRITE, RF_READ)
+		PARAMS ( 
+			RARRAY ( prog_reg_set, main_reg, 32);
+			RARRAY ( prog_reg_set, float_reg, 32);
+		)
+	  	PORTS (
+		PORT(from_instr_decode1,l_reg,DESTINATION);
+		PORT(to_instr_decode1,l_reg,SOURCE);
+		PORT(from_instr_decode2,l_reg,DESTINATION);
+		PORT(to_instr_decode2,l_reg,SOURCE);
+		PORT(from_write_back,l_reg,DESTINATION);
+	  )
+	);
+	ENTITY memory (
+		EXTENDS (Biclocked)
+		DESCRIPTION ("The memory file")
+		STATES (M_IDLE, M_BUSY)
+		PARAMS (
+			RSTRING (INSTRUCTION, "IDLE");
+			RSTRING (DATA, "IDLE");
+-- 8 is the maximum length of the data access pipeline
+			static RRANGE (data_accesstime, 1, 8, 2)
+-- i_accesstime fixed at 1 
+			read_only RINT (inst_accesstime, 1)
+			RINT (I_Mem_Size, 65536);
+			RINT (D_Mem_Size, 65536);
+			RARRAY ( instr_mem_array, instr_mem, I_Mem_Size);
+			RARRAY ( data_mem_array, data_mem, D_Mem_Size);
+		)
+	  	PORTS (
+		PORT(instr_request,l_mem,DESTINATION);
+		PORT(instr_out,l_mem,SOURCE);
+		PORT(data_out,l_mem,SOURCE);
+		PORT(data_request,l_mem,DESTINATION);
+	  )
+	);
+
+	ENTITY instr_fetch (
+		EXTENDS (Biclocked)
+		DESCRIPTION ("Instruction Fetch Unit")
+		STATES (IF_VOID, IF_BUSY, IF_HELD)
+		PARAMS ( 
+			RSTRUCT ( pc_struct, PPC );
+			)
+	  PORTS (
+		PORT(to_memory,l_mem,SOURCE);
+		PORT(from_memory,l_mem,DESTINATION);
+	 	PORT(instr_out,l_pipe,SOURCE);
+		PORT(new_pc_in,l_pipe,DESTINATION);
+	  )
+	);
+
+	ENTITY instr_decode (
+		EXTENDS (Biclocked)
+		DESCRIPTION ("Instruction Decode Unit")
+		STATES (ID_VOID, ID_BUSY, ID_HELD)
+		PARAMS ( )
+		PORTS (
+		 PORT(instr_in,l_pipe,DESTINATION);
+		 PORT(to_registers1,l_reg,SOURCE);
+		 PORT(from_registers1,l_reg,DESTINATION);
+		 PORT(to_registers2,l_reg,SOURCE);
+		 PORT(from_registers2,l_reg,DESTINATION);
+		 PORT(int_instr_out,l_pipe,SOURCE);
+		 PORT(flt_instr_out,l_pipe,SOURCE);
+		 PORT(mul_instr_out,l_pipe,SOURCE);
+		 PORT(div_instr_out,l_pipe,SOURCE);
+		)
+	);
+	ENTITY Int_exe (
+		EXTENDS (Biclocked)
+		DESCRIPTION("Integer execution unit")
+		STATES (EI_VOID, EI_BUSY, EI_HELD)
+		PARAMS ( )
+		PORTS (
+		 PORT(int_instr_in,l_pipe,DESTINATION);
+		 PORT(int_instr_out,l_pipe,SOURCE);
+		)
+	);
+
+	ENTITY Flt_exe (
+		EXTENDS (Biclocked)
+		DESCRIPTION("Floating-point execution unit")
+		STATES (EF_VOID, EF_BUSY, EF_HELD)
+		PARAMS ( static RRANGE(latency, 1, 8, 2) )
+		PORTS (
+		 PORT(flt_instr_in,l_pipe,DESTINATION);
+		 PORT(flt_instr_out,l_pipe,SOURCE);
+		)
+	);
+	ENTITY Mul_exe (
+		EXTENDS (Biclocked)
+		DESCRIPTION("Multiplier execution unit")
+		STATES (EM_VOID, EM_BUSY, EM_HELD)
+		PARAMS ( static RRANGE(latency, 1, 8, 3) )
+		PORTS (
+		 PORT(mul_instr_in,l_pipe,DESTINATION);
+		 PORT(mul_instr_out,l_pipe,SOURCE);
+		)
+	);
+	ENTITY Div_exe (
+		EXTENDS (Biclocked)
+		DESCRIPTION("Divider execution unit")
+		STATES (ED_VOID, ED_BUSY, ED_HELD)
+		PARAMS ( static RRANGE(latency, 1, 8, 4) )
+		PORTS (
+		 PORT(div_instr_in,l_pipe,DESTINATION);
+		 PORT(div_instr_out,l_pipe,SOURCE);
+		)
+	);
+	ENTITY mem_access (
+		EXTENDS (Biclocked)
+		DESCRIPTION ("Memory access")
+		STATES (MA_VOID, MA_BUSY, MA_HELD)
+		PARAMS (
+			RSTRUCT ( pc_struct, PC);
+			RINT ( FP, 0 );
+		)
+		PORTS (
+		 PORT(from_int_exe,l_pipe,DESTINATION);
+		 PORT(from_flt_exe,l_pipe,DESTINATION);
+		 PORT(from_mul_exe,l_pipe,DESTINATION);
+		 PORT(from_div_exe,l_pipe,DESTINATION);
+		 PORT(to_memory,l_mem,SOURCE);
+		 PORT(from_memory,l_mem,DESTINATION);
+		 PORT(to_write_back,l_pipe,SOURCE);
+		 PORT(to_instr_fetch,l_pipe,SOURCE);
+		)
+	);
+	ENTITY write_back (
+		EXTENDS (Biclocked)
+		DESCRIPTION ("Write back")
+		STATES (W_VOID, W_BUSY)
+		PARAMS ( )
+		PORTS (
+		 PORT(instr_in,l_pipe,DESTINATION);
+		 PORT(to_registers,l_reg,SOURCE);
+		)
+	);
+	)
+	STRUCTURE(
+-- List of entity instances in top-level model
+	
+		AENTITY memory MEMORY (
+			DESCRIPTION("memory")
+		);
+		AENTITY registers REGISTERS (
+			DESCRIPTION("registers")
+		);
+
+		AENTITY instr_fetch INSTR_FETCH (
+			DESCRIPTION("Instruction Fetch")
+		);
+		AENTITY instr_decode INSTR_DECODE (
+			DESCRIPTION("Instruction Issue")
+		);
+		AENTITY Int_exe INT_EXE (
+			DESCRIPTION("Instruction Execute")
+		);
+		AENTITY Flt_exe FLT_EXE (
+			DESCRIPTION("Instruction Execute")
+		);
+		AENTITY Mul_exe MUL_EXE (
+			DESCRIPTION("Instruction Execute")
+		);
+		AENTITY Div_exe DIV_EXE (
+			DESCRIPTION("Instruction Execute")
+		);
+		AENTITY mem_access MEM_ACCESS (
+			DESCRIPTION("memory access")
+		);
+		AENTITY write_back WRITE_BACK (
+			DESCRIPTION("Write back")
+		);
+				
+		AENTITY scoreboard SCOREBOARD (
+			DESCRIPTION("Scoreboard")
+		);
+		AENTITY pipe_disp PIPE_DISP (
+			DESCRIPTION("Pipeline")
+		);
+		AENTITY Clock CLOCK ( DESCRIPTION ("Clock"));
+		AENTITY Clockphase CPHASE (DESCRIPTION ("Clock display"));
+
+		CLINK(instr_fetch.INSTR_FETCH[to_memory]->memory.MEMORY[instr_request],1);
+		CLINK(memory.MEMORY[instr_out]->instr_fetch.INSTR_FETCH[from_memory],1);
+		CLINK(mem_access.MEM_ACCESS[to_memory]->memory.MEMORY[data_request],1);
+		CLINK(memory.MEMORY[data_out]->mem_access.MEM_ACCESS[from_memory],1);
+		CLINK(instr_fetch.INSTR_FETCH[instr_out]->instr_decode.INSTR_DECODE[instr_in],1);
+		CLINK(instr_decode.INSTR_DECODE[to_registers1]->registers.REGISTERS[from_instr_decode1],1);
+		CLINK(registers.REGISTERS[to_instr_decode1]->instr_decode.INSTR_DECODE[from_registers1],1);
+		CLINK(instr_decode.INSTR_DECODE[to_registers2]->registers.REGISTERS[from_instr_decode2],1);
+		CLINK(registers.REGISTERS[to_instr_decode2]->instr_decode.INSTR_DECODE[from_registers2],1);
+		CLINK(instr_decode.INSTR_DECODE[int_instr_out]->Int_exe.INT_EXE[int_instr_in],1);
+		CLINK(instr_decode.INSTR_DECODE[flt_instr_out]->Flt_exe.FLT_EXE[flt_instr_in],1);
+		CLINK(instr_decode.INSTR_DECODE[mul_instr_out]->Mul_exe.MUL_EXE[mul_instr_in],1);
+		CLINK(instr_decode.INSTR_DECODE[div_instr_out]->Div_exe.DIV_EXE[div_instr_in],1);
+		CLINK(Int_exe.INT_EXE[int_instr_out]->mem_access.MEM_ACCESS[from_int_exe],1);
+		CLINK(Flt_exe.FLT_EXE[flt_instr_out]->mem_access.MEM_ACCESS[from_flt_exe],1);
+		CLINK(Mul_exe.MUL_EXE[mul_instr_out]->mem_access.MEM_ACCESS[from_mul_exe],1);
+		CLINK(Div_exe.DIV_EXE[div_instr_out]->mem_access.MEM_ACCESS[from_div_exe],1);
+		CLINK(mem_access.MEM_ACCESS[to_write_back]->write_back.WRITE_BACK[instr_in],1);
+		CLINK(mem_access.MEM_ACCESS[to_instr_fetch]->instr_fetch.INSTR_FETCH[new_pc_in],0);
+		CLINK(write_back.WRITE_BACK[to_registers]->registers.REGISTERS[from_write_back],1);
+	)
+)
