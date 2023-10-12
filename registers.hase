@@ -29,7 +29,7 @@ $class_decls
 
   int Rbusy( int index ) { return main_reg.vec[index].reg_busy; };
   int Fbusy( int index ) { return float_reg.vec[index].reg_busy; };
-  uint Rvalue( int index ) { return main_reg.vec[index].reg_value; };
+  unsigned int Rvalue( int index ) { return main_reg.vec[index].reg_value; };
   int Fvalue( int index ) { return float_reg.vec[index].reg_value; };
 // .vec means update array, but not screen highlighting
   void setDestBusy( char* DestRegType, int DestRegNo);
